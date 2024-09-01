@@ -1,0 +1,171 @@
+h1,
+h2 h3,
+h4,
+h5,
+p {
+    font-family: 'Geneva';
+}
+
+p {
+    font-size: 0.8rem;
+}
+
+body {
+    background-color: #E0E0E0;
+}
+
+.site_logo {
+    width: 20vw;
+}
+
+.title_bar {
+    display: inline-block;
+}
+
+.tabs {
+    font-family: 'Geneva';
+}
+
+.season_dropdown {
+    font-family: 'Geneva';
+    width: 25%;
+}
+
+.driver_name_card {
+    background-color: white;
+}
+
+.driver_about_card {
+    background-color: white;
+}
+
+.driver_career_card {
+    background-color: white;
+}
+
+.driver_about_seasons {
+    background-color: white;
+}
+
+.driver_about_finishing {
+    background-color: white;
+}
+
+.driver_about_grid {
+    background-color: white;
+}
+
+.driver_about_wins {
+    background-color: white;
+}
+
+.driver_list_dropdown {
+    padding-top: 15px;
+    width: 25%;
+}
+
+#winsCard>div>div.DataCardContent>div.DataCardNumbers>div.Value {
+    font-size: 1rem;
+}
+
+#polesCard>div>div.DataCardContent>div.DataCardNumbers>div.Value {
+    font-size: 1rem;
+}
+
+#lapCard>div>div.DataCardContent>div.DataCardNumbers>div.Value {
+    font-size: 1rem;
+}
+
+/* Container styling */
+container {
+    padding: 20px;
+    background-color: #f9f9f9;
+    border-radius: 10px;
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+    text-align: center;
+}
+
+/* Label styling */
+label {
+    font-size: 16px;
+    font-weight: bold;
+    color: #333;
+}
+
+/* Dropdown styling */
+dropdown {
+    margin-bottom: 15px;
+}
+
+/* Button styling */
+button {
+    margin-top: 20px;
+    margin-bottom: 20px;
+    background-color: #007bff;
+    color: #fff;
+    border-radius: 5px;
+    border: none;
+    padding: 10px 20px;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+/* Graph styling */
+graph {
+    padding: 10px;
+    border-radius: 10px;
+    background-color: #fff;
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Details styling */
+details {
+    margin-top: 20px;
+    background-color: #f1f1f1;
+    padding: 15px;
+    border-radius: 10px;
+    box-shadow: 0px 0px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* Table styling */
+#complexity-report table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-size: 18px;
+    text-align: left;
+}
+
+#complexity-report th, #complexity-report td {
+    padding: 12px 15px;
+    border: 1px solid #ddd;
+}
+
+#complexity-report th {
+    background-color: #f4f4f4;
+    font-weight: bold;
+}
+
+#complexity-report tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+#complexity-report tr:hover {
+    background-color: #f1f1f1;
+}
+
+#complexity-report td {
+    color: #333;
+}
+
+#complexity-report tr:last-child th {
+    background-color: #ececec;
+    text-align: center;
+}
+
+#complexity-report tr:last-child td {
+    background-color: #ffffff;
+    font-weight: bold;
+}
+
+

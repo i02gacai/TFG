@@ -5,10 +5,7 @@ import dash_daq as daq
 import pandas as pd
 import plotly.graph_objs as go
 from dash.dependencies import Input, Output, State
-from utils.helpers import *
-from utils.figures import *
 from app import *
-from data_reader import *
 
 # Setting the font size, color, and background color for the LED displays.
 FONTSIZE = 20

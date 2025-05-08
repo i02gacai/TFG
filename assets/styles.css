@@ -158,14 +158,4 @@ details {
     color: #333;
 }
 
-#complexity-report tr:last-child th {
-    background-color: #ececec;
-    text-align: center;
-}
-
-#complexity-report tr:last-child td {
-    background-color: #ffffff;
-    font-weight: bold;
-}
-
 

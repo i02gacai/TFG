@@ -1037,5 +1037,5 @@ def calculate_complexity_and_meta_features(n_clicks, lang, data, input_feature, 
 
 # A way to run the app in a local server.
 if __name__ == "__main__":
-    app.run_server(debug=True)
+    app.run_server(debug=False)
 

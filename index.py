@@ -28,17 +28,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 import dash_bootstrap_components as dbc
-import joblib
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.svm import SVC
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.naive_bayes import GaussianNB
-from sklearn.neural_network import MLPClassifier
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score
-from sklearn.ensemble import RandomForestClassifier 
+import traceback
+from measures import *
 
 
 # Configuración inicial de la aplicación y el servidor
@@ -856,67 +847,33 @@ def update_download_link(n_clicks, data, input_feature, class_feature):
         if X.ndim == 1:
             X = X.reshape(-1, 1)
 
-        cc = px.ComplexityCalculator()
-        cc.fit(X, y)
-        cc._metrics()
-
-        report = cc.report()
-
-        # Creating the complexity data in a DataFrame
-        complexity_data = {
-            "Metric": [],
-            "Value": []
+        all_measures = {
+            "F1": f1(X, y),
+            "F1v": f1v(X, y),
+            "F2": f2(X, y),
+            "F3": f3(X, y),
+            "F4": f4(X, y),
+            "N1": n1(X, y),
+            "T1": t1(X, y),
+            "N2": n2(X, y),
+            "N3": n3(X, y),
+            "N4": n4(X, y),
+            "LSC": lsc(X, y),
+            "Samples per Dimension": avg_samples_per_dimension(X),
+            "Class Entropy": class_entropy(y),
+            "Imbalance Ratio": imbalance_ratio(y),
+            "Feature-Output Correlation (Max)": feature_output_correlation(X, y)[0],
+            "Feature-Output Correlation (Mean)": feature_output_correlation(X, y)[1],
+            "PCA Components (95%)": avg_pca_components(X)
         }
-
-        # Fill complexity data for Linearity measures, Feature-based measures, etc.
-        complexity_data["Metric"] += ["l1", "l2", "l3"]
-        complexity_data["Value"] += [report['complexities']['l1'],
-                                        report['complexities']['l2'],
-                                        report['complexities']['l3']]
-
-        complexity_data["Metric"] += ["f1", "f1v", "f2", "f3", "f4"]
-        complexity_data["Value"] += [report['complexities']['f1'],
-                                        report['complexities']['f1v'],
-                                        report['complexities']['f2'],
-                                        report['complexities']['f3'],
-                                        report['complexities']['f4']]
-
-        complexity_data["Metric"] += ["c1", "c2"]
-        complexity_data["Value"] += [report['complexities']['c1'],
-                                        report['complexities']['c2']]
-
-        complexity_data["Metric"] += ["t2", "t3", "t4"]
-        complexity_data["Value"] += [report['complexities']['t2'],
-                                        report['complexities']['t3'],
-                                        report['complexities']['t4']]
-
-        complexity_data["Metric"] += ["hubs", "clsCoef", "density"]
-        complexity_data["Value"] += [report['complexities']['hubs'],
-                                        report['complexities']['clsCoef'],
-                                        report['complexities']['density']]
-
-        complexity_data["Metric"] += ["lsc", "t1", "n1", "n2", "n3", "n4"]
-        complexity_data["Value"] += [report['complexities']['lsc'],
-                                        report['complexities']['t1'],
-                                        report['complexities']['n1'],
-                                        report['complexities']['n2'],
-                                        report['complexities']['n3'],
-                                        report['complexities']['n4']]
-
-        # Meta-feature extraction
-        mfe_groups = ["clustering", "concept", "general", "statistical", "info-theory"]
-        for group in mfe_groups:
-            mfe = MFE(groups=[group])
-            mfe.fit(X, y)
-            ft_names, ft_values = mfe.extract()
-            for name, value in zip(ft_names, ft_values):
-                complexity_data["Metric"].append(f"{group}_{name}")
-                complexity_data["Value"].append(value)
-
-        complexity_df = pd.DataFrame(complexity_data)
+                # Crear el DataFrame para el CSV
+        csv_df = pd.DataFrame(
+            [(k, v) for k, v in all_measures.items()],
+            columns=["Metric", "Value"]
+        )
         
         # Crear el enlace de descarga para el archivo CSV
-        return dcc.send_data_frame(complexity_df.to_csv, "metafeatures.csv")
+        return dcc.send_data_frame(csv_df.to_csv, "metafeatures.csv", index=False)
     return None
 
 # Callback para actualizar las opciones de los dropdowns para las características de entrada y clase
@@ -941,133 +898,141 @@ def update_dropdown_options_(data):
         return options, options
     return [], []
 
+
+# Callback para calcular y mostrar meta-características y medidas de complejidad del dataset
 @app.callback(
-    [Output("output-image", "src"),  # Salida: La imagen de complejidad generada en formato base64.
-     Output("output-image", "hidden"),  # Salida: Si se oculta o no la imagen generada.
-     Output("download-csv", "hidden"),  # Salida: Si se oculta o no la opción de descargar el CSV.
-     Output("output-meta-features", "children"),  # Salida: El reporte con las metacaracterísticas extraídas.
-     Output("error-message1", "children")],  # Salida: Mensaje de error si ocurre alguna excepción.
-    Input("calculate_meta_features", "n_clicks"),  # Entrada: Número de clics en el botón "calculate_meta_features".
-    State('language', 'data'),  # Estado: El idioma seleccionado por el usuario.
-    State("stored-data2", "data"),  # Estado: Los datos cargados en la aplicación.
-    State("input-feature-dropdown1", "value"),  # Estado: Característica seleccionada para la entrada.
-    State("class-feature-dropdown1", "value"),  # Estado: Característica seleccionada para la clase.
+    [Output("download-csv", "hidden"),                 # Controla visibilidad del botón para descargar CSV
+     Output("output-meta-features", "children"),      # Contenedor donde se muestran las tablas de resultados
+     Output("error-message1", "children")],           # Mostrar mensajes de error en la interfaz
+    Input("calculate_meta_features", "n_clicks"),     # Evento disparado al hacer clic en botón de cálculo
+    State('language', 'data'),                         # Estado que contiene el idioma seleccionado (para traducción)
+    State("stored-data2", "data"),                     # Datos cargados en la aplicación (lista o tabla)
+    State("input-feature-dropdown1", "value"),        # Característica seleccionada como entrada
+    State("class-feature-dropdown1", "value"),        # Característica seleccionada como clase/etiqueta
 )
 def calculate_complexity_and_meta_features(n_clicks, lang, data, input_feature, class_feature):
     """
-    Este callback calcula la complejidad del conjunto de datos y extrae las metacaracterísticas.
-    Muestra un gráfico y un reporte de las metacaracterísticas calculadas.
+    Calcula diferentes métricas de complejidad y meta-características sobre los datos
+    seleccionados y construye tablas HTML para mostrarlas.
 
     Parámetros:
-    - n_clicks: (int) Número de clics en el botón de cálculo de metacaracterísticas.
-    - lang: (str) El idioma seleccionado por el usuario.
-    - data: (list) Los datos cargados en la aplicación.
-    - input_feature: (str) La característica seleccionada para la entrada.
-    - class_feature: (str) La característica seleccionada para la clase.
+    - n_clicks: Número de clics en el botón para activar el cálculo.
+    - lang: Código del idioma para traducción de etiquetas.
+    - data: Datos cargados en formato lista o tabla.
+    - input_feature: Nombre de la columna seleccionada como característica.
+    - class_feature: Nombre de la columna seleccionada como clase.
 
     Retorna:
-    - La imagen de complejidad en formato base64.
-    - Un reporte con las metacaracterísticas extraídas.
-    - Mensaje de error si ocurre algún problema durante el proceso.
+    - Estado para mostrar u ocultar botón de descarga.
+    - Componentes HTML con tablas de resultados.
+    - Mensaje de error (si ocurre alguno).
     """
-    
-    error_message = None
 
-    # Verifica si el botón ha sido presionado
+    error_message = None  # Inicializa variable para almacenar posibles mensajes de error
+
+    # Solo ejecutar el cálculo si el botón ha sido presionado al menos una vez
     if n_clicks > 0:
-        # Verifica si se han seleccionado las características de entrada y clase
+
+        # Validación: verificar que el usuario haya seleccionado ambas columnas
         if not input_feature or not class_feature:
-            # Si no se seleccionaron las características, muestra un mensaje de error
+            # Crear alerta de error traducida
             error_message = dbc.Alert(t("Plot-Alert", lang), color="danger")
-            return '', True, True, '', error_message
+            # Ocultar botón descarga, no mostrar resultados, mostrar mensaje de error
+            return True, '', error_message
 
-        if data:  # Si los datos están disponibles
+        if data:
             try:
-                # Convierte los datos en un DataFrame de pandas
+                # Convertir los datos en DataFrame para facilitar manipulación
                 df = pd.DataFrame(data)
-                X = df[input_feature].to_numpy()  # Extrae las características de entrada
-                y = df[class_feature].to_numpy()  # Extrae las características de clase
 
-                if X.ndim == 1:  # Si X tiene solo una dimensión, remodela a 2D
+                # Extraer los datos de entrada y clase en formato numpy
+                X = df[input_feature].to_numpy()
+                y = df[class_feature].to_numpy()
+
+                # Si X es un vector 1D, lo transforma en matriz 2D (n_samples x 1)
+                if X.ndim == 1:
                     X = X.reshape(-1, 1)
 
-                # Calcula las complejidades con el objeto ComplexityCalculator
-                cc = px.ComplexityCalculator()
-                cc.fit(X, y)  # Ajusta el calculador de complejidad a los datos
-                cc._metrics()  # Calcula las métricas de complejidad
+                # Calcular métricas
+                meausures = {
+                    "F1": (f1(X, y), t("f1", lang), t("f1-d", lang)),
+                    "F1v": (f1v(X, y), t("f1v", lang), t("f1v-d", lang)),
+                    "F2": (f2(X, y), t("f2", lang), t("f2-d", lang)),
+                    "F3": (f3(X, y), t("f3", lang), t("f3-d", lang)),
+                    "F4": (f4(X, y), t("f4", lang), t("f4-d", lang)),
 
-                # Crea la figura para el gráfico de complejidad
-                fig = plt.figure(figsize=(7, 7))
-                cc.plot(fig, (1, 1, 1))
-                buffer = io.BytesIO()  # Crea un buffer en memoria para almacenar la imagen
-                plt.savefig(buffer, format='png')  # Guarda la figura en el buffer en formato PNG
-                buffer.seek(0)
-                image_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')  # Convierte la imagen a base64
-                plt.close(fig)  # Cierra la figura de matplotlib
+                    "N1": (n1(X, y), t("n1", lang), t("n1-d", lang)),
+                    "T1": (t1(X, y), t("t1", lang), t("t1-d", lang)),
 
-                # Genera el reporte de complejidad
-                report = cc.report()
+                    "N2": (n2(X, y), t("n2", lang), t("n2-d", lang)),
+                    "N3": (n3(X, y), t("n3", lang), t("n3-d", lang)),
+                    "N4": (n4(X, y), t("n4", lang), t("n4-d", lang)),
+                    "LSC": (lsc(X, y), t("lsc", lang), t("lsc-d", lang)),
 
-                # Función para crear tablas de métricas y valores
-                def create_table(title, metrics):
-                    table_header = [html.Thead(html.Tr([html.Th(t("Metric", lang)), html.Th(t("Value", lang))]))]
-                    table_rows = [html.Tr([html.Td(key, title=t(key, lang)), html.Td(value)]) for key, value in metrics]
-                    table_body = [html.Tbody(table_rows)]
+                    "Samples per Dimension": (avg_samples_per_dimension(X), t("avg_samples_per_dimension", lang), t("avg_samples_per_dimension-d", lang)),
+                    "Class Entropy": (class_entropy(y), t("class_entropy", lang), t("class_entropy-d", lang)),
+                    "Imbalance Ratio": (imbalance_ratio(y), t("imbalance_ratio", lang), t("imbalance_ratio-d", lang)),
+                    "Feature-Output Correlation (Max)": (feature_output_correlation(X, y)[0], t("Feature-Output-Correlation(Max)", lang), t("Feature-Output-Correlation(Max)-d", lang)),
+                    "Feature-Output Correlation (Mean)": (feature_output_correlation(X, y)[1], t("Feature-Output-Correlation(Mean)", lang), t("Feature-Output-Correlation(Mean)-d", lang)),
+                    "PCA Components (95%)": (avg_pca_components(X), t("avg_pca_components", lang), t("avg_pca_components-d", lang))
+                }
+
+                # Función auxiliar para construir tablas HTML con las métricas calculadas
+                def build_table(title, measures):
+                    # Construcción del encabezado de la tabla con traducciones
+                    header = [html.Thead(html.Tr([
+                        html.Th(t("Metric", lang)),
+                        html.Th(t("Value", lang)),
+                        html.Th(t("Description", lang)),
+                        html.Th(t("Interpretation", lang))
+                    ]))]
+
+                    # Formatear los valores para que tengan máximo 4 decimales
+                    def format_value(val):
+                        try:
+                            return round(val.item(), 4) if isinstance(val, np.ndarray) else round(val, 4)
+                        except Exception:
+                            return str(val)
+
+                    # Crear las filas con las métricas y su información
+                    rows = [
+                        html.Tr([
+                            html.Td(k),
+                            html.Td(format_value(v[0])),
+                            html.Td(v[1]),
+                            html.Td(v[2])
+                        ]) for k, v in measures.items()
+                    ]
+                    body = [html.Tbody(rows)]
+
+                    # Devolver un Div con título y la tabla completa
                     return html.Div([
-                        html.H3(t(title, lang)),  # Título de la tabla
-                        html.Hr(),
-                        dbc.Table(table_header + table_body, striped=True, bordered=True, hover=True),  # Crea la tabla
+                        html.H4(title),
+                        dbc.Table(header + body, bordered=True, striped=True, hover=True),
                         html.Br()
                     ])
 
-                # Crea tablas con las métricas de complejidad
-                tables = [
-                    create_table("Linearity-measures", [("l1", report['complexities']['l1']),
-                                                         ("l2", report['complexities']['l2']),
-                                                         ("l3", report['complexities']['l3'])]),
-                    create_table("Feature-based-measures", [("f1", report['complexities']['f1']),
-                                                             ("f1v", report['complexities']['f1v']),
-                                                             ("f2", report['complexities']['f2']),
-                                                             ("f3", report['complexities']['f3']),
-                                                             ("f4", report['complexities']['f4'])]),
-                    create_table("Class-imbalance-measures", [("c1", report['complexities']['c1']),
-                                                              ("c2", report['complexities']['c2'])]),
-                    create_table("Dimensionality-measures", [("t2", report['complexities']['t2']),
-                                                              ("t3", report['complexities']['t3']),
-                                                              ("t4", report['complexities']['t4'])]),
-                    create_table("Network-measures", [("hubs", report['complexities']['hubs']),
-                                                       ("clsCoef", report['complexities']['clsCoef']),
-                                                       ("density", report['complexities']['density'])]),
-                    create_table("Neighborhood-measures", [("lsc", report['complexities']['lsc']),
-                                                           ("t1", report['complexities']['t1']),
-                                                           ("n1", report['complexities']['n1']),
-                                                           ("n2", report['complexities']['n2']),
-                                                           ("n3", report['complexities']['n3']),
-                                                           ("n4", report['complexities']['n4'])])
+                # Construir las tablas para cada grupo de métricas
+                result_tables = [
+                    build_table(t("Measures", lang), meausures),
                 ]
 
-                # Define grupos de metacaracterísticas para el cálculo adicional
-                mfe_groups = ["clustering", "concept", "general", "statistical", "info-theory"]
-                mfe_tables = []
-                for group in mfe_groups:
-                    mfe = MFE(groups=[group])  # Crea un extractor de metacaracterísticas para el grupo
-                    mfe.fit(X, y)  # Ajusta los datos al extractor de metacaracterísticas
-                    ft_names, ft_values = mfe.extract()  # Extrae las metacaracterísticas
-                    mfe_tables.append(create_table(f"{t('Meta-Features-of-the-group', lang)}: {group.capitalize()}",
-                                                   zip(ft_names, ft_values)))  # Crea una tabla con las metacaracterísticas
-
-                final_report = html.Div(tables + mfe_tables)  # Combina todas las tablas en un solo reporte
-
-                # Retorna la imagen en formato base64, oculta la imagen, oculta el CSV y muestra el reporte final
-                return f'data:image/png;base64,{image_base64}', False, False, final_report, None
+                # Retornar:
+                # - False para mostrar el botón de descarga
+                # - Div con las tablas generadas
+                # - Mensaje de error vacío (sin error)
+                return False, html.Div(result_tables), ''
 
             except Exception as e:
-                # Si ocurre un error, muestra un mensaje de error
-                error_message = dbc.Alert(f"{t('Error', lang)}: {str(e)}", color="danger")
-                return '', True, True, '', error_message
+                # En caso de error, capturar la traza completa y mostrarla al usuario
+                error_details = traceback.format_exc()
+                error_message = dbc.Alert(f"{t('Error', lang)}: {error_details}", color="danger")
+                # Ocultar botón de descarga, no mostrar tablas, mostrar error
+                return True, '', error_message
 
-    # Si no se ha presionado el botón, oculta todos los elementos de salida
-    return '', True, True, '', None
+    # Si no se ha clickeado o no hay datos, ocultar descarga y no mostrar nada
+    return True, '', None
+
 
 
 # A way to run the app in a local server.

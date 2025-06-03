@@ -10,6 +10,7 @@ from sklearn.neighbors import KNeighborsClassifier
 import numpy as np
 import networkx as nx
 from sklearn.metrics import mean_squared_error
+from scipy.stats import entropy
 import itertools
 
 def f1(X, y):
@@ -44,12 +45,11 @@ def f1(X, y):
 
     # Promediar sobre todas las comparaciones entre pares de clases
     f1_val = np.mean(f1s, axis=0)
-    return f1_val
+    return np.max(f1_val)
 
 def f1v(X, y):
     """
     Calcula F1v para clasificación multiclase utilizando el método One-vs-One.
-    Basado en la fórmula de Malina [92] y Lorena et al. [88].
 
     Parámetros:
     X: np.array [n_samples, n_features]
@@ -234,52 +234,6 @@ def lsc(X, y):
         lsc_values.append(len(local_set))
     return np.mean(lsc_values)
 
-def non_linearity_linear_classifier(X, y, n_samples=1000, random_state=42):
-    """
-    Estima la no-linealidad de un clasificador lineal (Logistic Regression)
-    generando ejemplos sintéticos por interpolación lineal de pares de la misma clase
-    y midiendo la tasa de error en dichos ejemplos.
-    """
-    rng = np.random.RandomState(random_state)
-    synthetic_X = []
-    synthetic_y = []
-    for cls in np.unique(y):
-        idx = np.where(y == cls)[0]
-        for _ in range(n_samples):
-            i, j = rng.choice(idx, 2, replace=False)
-            alpha = rng.rand()
-            synthetic_X.append(alpha * X[i] + (1 - alpha) * X[j])
-            synthetic_y.append(cls)
-    synthetic_X = np.vstack(synthetic_X)
-    synthetic_y = np.array(synthetic_y)
-
-    clf = LogisticRegression(max_iter=1000)
-    clf.fit(X, y)
-    y_pred = clf.predict(synthetic_X)
-    return np.mean(y_pred != synthetic_y)
-
-def non_linearity_knn_classifier(X, y, n_samples=1000, random_state=42):
-    """
-    Estima la no-linealidad de un clasificador 1-KNN generando ejemplos sintéticos
-    por interpolación lineal de pares de la misma clase y midiendo la tasa de error.
-    """
-    rng = np.random.RandomState(random_state)
-    synthetic_X = []
-    synthetic_y = []
-    for cls in np.unique(y):
-        idx = np.where(y == cls)[0]
-        for _ in range(n_samples):
-            i, j = rng.choice(idx, 2, replace=False)
-            alpha = rng.rand()
-            synthetic_X.append(alpha * X[i] + (1 - alpha) * X[j])
-            synthetic_y.append(cls)
-    synthetic_X = np.vstack(synthetic_X)
-    synthetic_y = np.array(synthetic_y)
-
-    knn = KNeighborsClassifier(n_neighbors=1)
-    knn.fit(X, y)
-    y_pred = knn.predict(synthetic_X)
-    return np.mean(y_pred != synthetic_y)
 
 def avg_samples_per_dimension(X):
     """
@@ -289,66 +243,49 @@ def avg_samples_per_dimension(X):
     n_samples, n_features = X.shape
     return n_samples / n_features
 
-def calc_network_measures(X, k=5):
-    """
-    Construye un grafo k-NN (aristas no dirigidas) y calcula:
-      - Densidad de la red
-      - Coeficiente de clustering medio
-      - Puntajes de hubs (hub centrality)
-    """
-    n = X.shape[0]
-    nbrs = NearestNeighbors(n_neighbors=k+1).fit(X)
-    distances, indices = nbrs.kneighbors(X)
-    
-    G = nx.Graph()
-    G.add_nodes_from(range(n))
-    for i in range(n):
-        for j in indices[i][1:]:
-            G.add_edge(i, j)
-    
-    density = nx.density(G)
-    avg_clustering = nx.average_clustering(G)
-    hubs, _ = nx.hits(G)  # hub and authority scores
-    return {
-        'density': density,
-        'average_clustering': avg_clustering,
-        'hub_scores': hubs
-    }
 
-def knn_regressor_error(X, y, k=5):
-    """
-    Estima el MSE de un regresor k-NN mediante validación Leave-One-Out.
-    """
-    n = X.shape[0]
-    nbrs = NearestNeighbors(n_neighbors=k+1).fit(X)
-    predictions = []
-    for i in range(n):
-        Xi = np.delete(X, i, axis=0)
-        yi = np.delete(y, i)
-        knn = KNeighborsClassifier(n_neighbors=k)  # regression via classification interface
-        knn.fit(Xi, yi)
-        predictions.append(knn.predict(X[i].reshape(1, -1))[0])
-    return mean_squared_error(y, predictions)
+def class_entropy(y):
+    classes, counts = np.unique(y, return_counts=True)
+    probs = counts / len(y)
+    return entropy(probs)
 
-def input_distribution_measure(X, k=5):
-    """
-    Calcula el promedio de distancia a los k-vecinos más cercanos para cada punto.
-    """
-    n = X.shape[0]
-    nbrs = NearestNeighbors(n_neighbors=k+1).fit(X)
-    distances, _ = nbrs.kneighbors(X)
-    # ignoramos la distancia cero al mismo ejemplo:
-    return np.mean(distances[:, 1:])
+def imbalance_ratio(y):
+    _, counts = np.unique(y, return_counts=True)
+    return max(counts) / min(counts)
 
-def output_distribution_measure(X, y, k=5):
+from sklearn.decomposition import PCA
+import numpy as np
+
+def avg_pca_components(X, variance_threshold=0.95):
+    pca = PCA().fit(X)
+    cumulative_variance = np.cumsum(pca.explained_variance_ratio_)
+    n_components = np.searchsorted(cumulative_variance, variance_threshold) + 1
+    return n_components
+
+import numpy as np
+
+def feature_output_correlation(X, y):
     """
-    Promedia la diferencia absoluta de las salidas entre cada punto y sus k-vecinos más cercanos.
+    Calcula la correlación absoluta entre cada característica y la clase.
+
+    Args:
+        X (numpy.ndarray): matriz de características (n_samples, n_features)
+        y (numpy.ndarray): vector de clases (n_samples, )
+
+    Returns:
+        (max_corr, mean_corr): máxima y promedio de correlaciones absolutas
     """
-    n = X.shape[0]
-    nbrs = NearestNeighbors(n_neighbors=k+1).fit(X)
-    _, indices = nbrs.kneighbors(X)
-    diffs = []
-    for i in range(n):
-        neighbors = indices[i][1:]
-        diffs.extend(np.abs(y[i] - y[j]) for j in neighbors)
-    return np.mean(diffs)
+    correlations = []
+    for i in range(X.shape[1]):
+        try:
+            corr = np.corrcoef(X[:, i], y)[0, 1]
+            if not np.isnan(corr):
+                correlations.append(abs(corr))
+        except Exception:
+            continue
+
+    if not correlations:
+        return 0.0, 0.0
+
+    return max(correlations), np.mean(correlations)
+

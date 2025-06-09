@@ -12,6 +12,16 @@ import networkx as nx
 from sklearn.metrics import mean_squared_error
 from scipy.stats import entropy
 import itertools
+import numpy as np
+from scipy.stats import spearmanr
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics.pairwise import euclidean_distances
+from scipy.sparse.csgraph import minimum_spanning_tree
+from scipy.spatial.distance import pdist, squareform
+from sklearn.preprocessing import MinMaxScaler
+
 
 def f1(X, y):
     """
@@ -262,30 +272,194 @@ def avg_pca_components(X, variance_threshold=0.95):
     n_components = np.searchsorted(cumulative_variance, variance_threshold) + 1
     return n_components
 
-import numpy as np
-
-def feature_output_correlation(X, y):
+def c1(X, y):
     """
-    Calcula la correlación absoluta entre cada característica y la clase.
+    Calcula la máxima correlación absoluta Spearman entre cada característica y la salida.
 
     Args:
         X (numpy.ndarray): matriz de características (n_samples, n_features)
-        y (numpy.ndarray): vector de clases (n_samples, )
+        y (numpy.ndarray): vector de salida (n_samples, )
 
     Returns:
-        (max_corr, mean_corr): máxima y promedio de correlaciones absolutas
+        float: máxima correlación absoluta
     """
     correlations = []
     for i in range(X.shape[1]):
         try:
-            corr = np.corrcoef(X[:, i], y)[0, 1]
+            corr, _ = spearmanr(X[:, i], y)
             if not np.isnan(corr):
                 correlations.append(abs(corr))
         except Exception:
             continue
 
     if not correlations:
-        return 0.0, 0.0
+        return 0.0
 
-    return max(correlations), np.mean(correlations)
+    return max(correlations)
 
+def c2(X, y):
+    """
+    Calcula la media de correlaciones absolutas Spearman entre cada característica y la salida.
+
+    Args:
+        X (numpy.ndarray): matriz de características (n_samples, n_features)
+        y (numpy.ndarray): vector de salida (n_samples, )
+
+    Returns:
+        float: promedio de correlaciones absolutas
+    """
+    correlations = []
+    for i in range(X.shape[1]):
+        try:
+            corr, _ = spearmanr(X[:, i], y)
+            if not np.isnan(corr):
+                correlations.append(abs(corr))
+        except Exception:
+            continue
+
+    if not correlations:
+        return 0.0
+
+    return np.mean(correlations)
+
+def l3(X, y, normalize=True):
+    """
+    Calcula la métrica L3: Non-linearity of a Linear Regressor.
+
+    Args:
+        X (numpy.ndarray): matriz de características (n_samples, n_features)
+        y (numpy.ndarray): vector de salida (n_samples, )
+        normalize (bool): si se normaliza en el intervalo [0, 1]
+
+    Returns:
+        float: error cuadrático medio sobre los puntos sintéticos
+    """
+    n_samples = X.shape[0]
+    if n_samples < 2:
+        return 0.0
+
+    # Normalización opcional
+    if normalize:
+        scaler_X = MinMaxScaler()
+        scaler_y = MinMaxScaler()
+        X = scaler_X.fit_transform(X)
+        y = scaler_y.fit_transform(y.reshape(-1, 1)).flatten()
+
+    # Crear puntos sintéticos interpolando entre pares consecutivos ordenados por y
+    sorted_indices = np.argsort(y)
+    X_sorted = X[sorted_indices]
+    y_sorted = y[sorted_indices]
+
+    synthetic_X = []
+    synthetic_y = []
+
+    for i in range(n_samples - 1):
+        x1, x2 = X_sorted[i], X_sorted[i + 1]
+        y1, y2 = y_sorted[i], y_sorted[i + 1]
+
+        # Punto intermedio (interpolación lineal)
+        x_syn = (x1 + x2) / 2
+        y_syn = (y1 + y2) / 2
+
+        synthetic_X.append(x_syn)
+        synthetic_y.append(y_syn)
+
+    synthetic_X = np.array(synthetic_X)
+    synthetic_y = np.array(synthetic_y)
+
+    # Entrenar modelo lineal en datos reales
+    model = LinearRegression()
+    model.fit(X, y)
+
+    # Predecir en puntos sintéticos
+    y_pred = model.predict(synthetic_X)
+
+    # Calcular MSE
+    mse = mean_squared_error(synthetic_y, y_pred)
+    return mse
+
+def build_similarity_graph(X, threshold=0.5):
+    """
+    Construye un grafo no dirigido basado en similitud (distancia euclidiana inversa).
+    Se conecta un nodo con otro si la similitud es mayor que un umbral.
+
+    Args:
+        X (np.ndarray): matriz de características (n_samples, n_features)
+        threshold (float): umbral de similitud (entre 0 y 1)
+
+    Returns:
+        G (networkx.Graph): grafo construido
+    """
+    n_samples = X.shape[0]
+    G = nx.Graph()
+    G.add_nodes_from(range(n_samples))
+
+    distances = euclidean_distances(X)
+    max_dist = np.max(distances)
+    similarities = 1 - (distances / max_dist)  # normaliza y convierte a similitud
+
+    for i in range(n_samples):
+        for j in range(i + 1, n_samples):
+            if similarities[i, j] >= threshold:
+                G.add_edge(i, j, weight=similarities[i, j])
+
+    return G
+
+def density(G):
+    """
+    Calcula la densidad del grafo.
+
+    Args:
+        G (networkx.Graph): grafo
+
+    Returns:
+        float: densidad (entre 0 y 1)
+    """
+    return nx.density(G)
+
+def average_clustering_coefficient(G):
+    """
+    Calcula el coeficiente de agrupamiento promedio del grafo.
+
+    Args:
+        G (networkx.Graph): grafo
+
+    Returns:
+        float: coeficiente de agrupamiento promedio
+    """
+    return nx.average_clustering(G)
+
+def s1(X, y, normalize=True):
+    """
+    Calcula la métrica S1 (output distribution) basada en un MST.
+
+    Args:
+        X (np.ndarray): matriz de características (n_samples, n_features)
+        y (np.ndarray): vector de etiquetas (n_samples,)
+        normalize (bool): si True, normaliza y a [0,1]
+
+    Returns:
+        float: valor promedio de diferencia absoluta de etiquetas en MST
+    """
+    # Normalizar etiquetas a [0,1]
+    if normalize:
+        scaler = MinMaxScaler()
+        y_norm = scaler.fit_transform(y.reshape(-1,1)).flatten()
+    else:
+        y_norm = y
+
+    # Calcular matriz de distancias (euclidianas) entre muestras
+    dist_matrix = squareform(pdist(X, metric='euclidean'))
+
+    # Construir MST
+    mst = minimum_spanning_tree(dist_matrix)
+
+    # Obtener aristas (i,j) y sus pesos
+    mst_coo = mst.tocoo()
+
+    # Calcular diferencia absoluta promedio entre etiquetas conectadas en MST
+    diffs = []
+    for i, j in zip(mst_coo.row, mst_coo.col):
+        diffs.append(abs(y_norm[i] - y_norm[j]))
+
+    return np.mean(diffs) if diffs else 0.0

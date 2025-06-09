@@ -818,15 +818,15 @@ def update_graph(n_clicks, lang, data, input_feature, class_feature, graph_type)
     return {}, html.Div()  # Si no se ha hecho clic en el botón, retorna un gráfico vacío y sin mensaje de error
 
 
-# Callback para descargar las meta-características en formato CSV
 @app.callback(
-    Output('download-component', 'data'),  # Parámetro de salida: Enlace de descarga para el archivo CSV
-    Input("download-csv", "n_clicks"),  # Parámetro de entrada: Número de clics en el botón de descarga
-    State("stored-data2", "data"),  # Estado: Datos cargados en la aplicación
-    State("input-feature-dropdown1", "value"),  # Estado: Característica seleccionada para la entrada
-    State("class-feature-dropdown1", "value"),  # Estado: Característica seleccionada para la clase
+    Output('download-component', 'data'),      # Salida: componente que contiene el enlace de descarga
+    Input("download-csv", "n_clicks"),         # Entrada: clics en el botón de descarga
+    State("stored-data2", "data"),             # Estado: datos cargados en la aplicación
+    State("input-feature-dropdown1", "value"), # Estado: característica de entrada seleccionada
+    State("class-feature-dropdown1", "value"), # Estado: característica de clase seleccionada
+    State('language', 'data'),                 # Estado: idioma seleccionado para traducción
 )
-def update_download_link(n_clicks, data, input_feature, class_feature):
+def update_download_link(n_clicks, data, input_feature, class_feature, lang):
     """
     Este callback genera un enlace de descarga para las meta-características extraídas de los datos proporcionados.
     
@@ -840,13 +840,16 @@ def update_download_link(n_clicks, data, input_feature, class_feature):
     - Un enlace para descargar un archivo CSV con las meta-características.
     """
     if n_clicks > 0 and data and input_feature and class_feature:
+        # Convertir los datos a DataFrame
         df = pd.DataFrame(data)
         X = df[input_feature].to_numpy()
         y = df[class_feature].to_numpy()
 
+        # Asegurar que X tenga dos dimensiones
         if X.ndim == 1:
             X = X.reshape(-1, 1)
 
+        # Calcular todas las métricas relevantes
         all_measures = {
             "F1": f1(X, y),
             "F1v": f1v(X, y),
@@ -862,19 +865,27 @@ def update_download_link(n_clicks, data, input_feature, class_feature):
             "Samples per Dimension": avg_samples_per_dimension(X),
             "Class Entropy": class_entropy(y),
             "Imbalance Ratio": imbalance_ratio(y),
-            "Feature-Output Correlation (Max)": feature_output_correlation(X, y)[0],
-            "Feature-Output Correlation (Mean)": feature_output_correlation(X, y)[1],
+            "C1": c1(X, y),
+            "C2": c2(X, y),
+            "L3": l3(X, y),
+            "S1": s1(X, y),
+            "Density": density(build_similarity_graph(X)),
+            "Average Clustering Coefficient": average_clustering_coefficient(build_similarity_graph(X)),
             "PCA Components (95%)": avg_pca_components(X)
         }
-                # Crear el DataFrame para el CSV
+
+        # Crear DataFrame con las métricas para el CSV
         csv_df = pd.DataFrame(
-            [(k, v) for k, v in all_measures.items()],
+            [(k, round(v.item(), 4) if isinstance(v, np.ndarray) else round(v, 4)) for k, v in all_measures.items()],
             columns=["Metric", "Value"]
         )
-        
-        # Crear el enlace de descarga para el archivo CSV
+
+        # Generar enlace de descarga
         return dcc.send_data_frame(csv_df.to_csv, "metafeatures.csv", index=False)
+
     return None
+
+
 
 # Callback para actualizar las opciones de los dropdowns para las características de entrada y clase
 @app.callback(
@@ -928,58 +939,64 @@ def calculate_complexity_and_meta_features(n_clicks, lang, data, input_feature, 
     - Mensaje de error (si ocurre alguno).
     """
 
-    error_message = None  # Inicializa variable para almacenar posibles mensajes de error
+    error_message = None
 
-    # Solo ejecutar el cálculo si el botón ha sido presionado al menos una vez
     if n_clicks > 0:
-
-        # Validación: verificar que el usuario haya seleccionado ambas columnas
         if not input_feature or not class_feature:
-            # Crear alerta de error traducida
             error_message = dbc.Alert(t("Plot-Alert", lang), color="danger")
-            # Ocultar botón descarga, no mostrar resultados, mostrar mensaje de error
             return True, '', error_message
 
         if data:
             try:
-                # Convertir los datos en DataFrame para facilitar manipulación
                 df = pd.DataFrame(data)
-
-                # Extraer los datos de entrada y clase en formato numpy
                 X = df[input_feature].to_numpy()
                 y = df[class_feature].to_numpy()
-
-                # Si X es un vector 1D, lo transforma en matriz 2D (n_samples x 1)
                 if X.ndim == 1:
                     X = X.reshape(-1, 1)
 
-                # Calcular métricas
-                meausures = {
-                    "F1": (f1(X, y), t("f1", lang), t("f1-d", lang)),
-                    "F1v": (f1v(X, y), t("f1v", lang), t("f1v-d", lang)),
-                    "F2": (f2(X, y), t("f2", lang), t("f2-d", lang)),
-                    "F3": (f3(X, y), t("f3", lang), t("f3-d", lang)),
-                    "F4": (f4(X, y), t("f4", lang), t("f4-d", lang)),
+                # Definición de grupos de métricas
+                grouped_measures = {
+                    t("Class-imbalance-measures", lang): {
+                        "Class Entropy": (class_entropy(y), t("class_entropy", lang), t("class_entropy-d", lang)),
+                        "Imbalance Ratio": (imbalance_ratio(y), t("imbalance_ratio", lang), t("imbalance_ratio-d", lang)),
+                    },
+                    t("Correlation-Measures", lang): {
+                        "C1": (c1(X, y), t("C1", lang), t("C1-d", lang)),
+                        "C2": (c2(X, y), t("C2", lang), t("C2-d", lang)),
+                    },
+                    t("Dimensionality-measures", lang): {
+                        "Samples per Dimension": (avg_samples_per_dimension(X), t("avg_samples_per_dimension", lang), t("avg_samples_per_dimension-d", lang)),
+                        "PCA Components (95%)": (avg_pca_components(X), t("avg_pca_components", lang), t("avg_pca_components-d", lang)),
+                    },
+                    t("Feature-based-measures", lang): {
+                        "F1": (f1(X, y), t("f1", lang), t("f1-d", lang)),
+                        "F1v": (f1v(X, y), t("f1v", lang), t("f1v-d", lang)),
+                        "F2": (f2(X, y), t("f2", lang), t("f2-d", lang)),
+                        "F3": (f3(X, y), t("f3", lang), t("f3-d", lang)),
+                        "F4": (f4(X, y), t("f4", lang), t("f4-d", lang)),
+                    },
+                    t("Geometric-Measures", lang): {
+                        "L3": (l3(X, y), t("L3", lang), t("L3-d", lang)), 
+                    },
+                    t("Neighborhood-measures", lang): {
+                        "N1": (n1(X, y), t("n1", lang), t("n1-d", lang)),
+                        "N2": (n2(X, y), t("n2", lang), t("n2-d", lang)),
+                        "N3": (n3(X, y), t("n3", lang), t("n3-d", lang)),
+                        "N4": (n4(X, y), t("n4", lang), t("n4-d", lang)),
+                        "T1": (t1(X, y), t("t1", lang), t("t1-d", lang)),
+                        "LSC": (lsc(X, y), t("lsc", lang), t("lsc-d", lang)),
+                    },
+                    t("Network-measures", lang): {
+                        "Density": (density(build_similarity_graph(X)), t("density", lang), t("density-d", lang)),
+                        "Average Clustering Coefficient": (average_clustering_coefficient(build_similarity_graph(X)), t("clsCoef", lang), t("clsCoef-d", lang)),
+                    },
+                    t("Smoothness-Measures", lang): {
+                        "S1": (s1(X, y), t("S1", lang), t("S1-d", lang)),
+                    },
 
-                    "N1": (n1(X, y), t("n1", lang), t("n1-d", lang)),
-                    "T1": (t1(X, y), t("t1", lang), t("t1-d", lang)),
-
-                    "N2": (n2(X, y), t("n2", lang), t("n2-d", lang)),
-                    "N3": (n3(X, y), t("n3", lang), t("n3-d", lang)),
-                    "N4": (n4(X, y), t("n4", lang), t("n4-d", lang)),
-                    "LSC": (lsc(X, y), t("lsc", lang), t("lsc-d", lang)),
-
-                    "Samples per Dimension": (avg_samples_per_dimension(X), t("avg_samples_per_dimension", lang), t("avg_samples_per_dimension-d", lang)),
-                    "Class Entropy": (class_entropy(y), t("class_entropy", lang), t("class_entropy-d", lang)),
-                    "Imbalance Ratio": (imbalance_ratio(y), t("imbalance_ratio", lang), t("imbalance_ratio-d", lang)),
-                    "Feature-Output Correlation (Max)": (feature_output_correlation(X, y)[0], t("Feature-Output-Correlation(Max)", lang), t("Feature-Output-Correlation(Max)-d", lang)),
-                    "Feature-Output Correlation (Mean)": (feature_output_correlation(X, y)[1], t("Feature-Output-Correlation(Mean)", lang), t("Feature-Output-Correlation(Mean)-d", lang)),
-                    "PCA Components (95%)": (avg_pca_components(X), t("avg_pca_components", lang), t("avg_pca_components-d", lang))
                 }
 
-                # Función auxiliar para construir tablas HTML con las métricas calculadas
                 def build_table(title, measures):
-                    # Construcción del encabezado de la tabla con traducciones
                     header = [html.Thead(html.Tr([
                         html.Th(t("Metric", lang)),
                         html.Th(t("Value", lang)),
@@ -987,14 +1004,12 @@ def calculate_complexity_and_meta_features(n_clicks, lang, data, input_feature, 
                         html.Th(t("Interpretation", lang))
                     ]))]
 
-                    # Formatear los valores para que tengan máximo 4 decimales
                     def format_value(val):
                         try:
                             return round(val.item(), 4) if isinstance(val, np.ndarray) else round(val, 4)
                         except Exception:
                             return str(val)
 
-                    # Crear las filas con las métricas y su información
                     rows = [
                         html.Tr([
                             html.Td(k),
@@ -1005,34 +1020,23 @@ def calculate_complexity_and_meta_features(n_clicks, lang, data, input_feature, 
                     ]
                     body = [html.Tbody(rows)]
 
-                    # Devolver un Div con título y la tabla completa
                     return html.Div([
                         html.H4(title),
                         dbc.Table(header + body, bordered=True, striped=True, hover=True),
                         html.Br()
                     ])
 
-                # Construir las tablas para cada grupo de métricas
-                result_tables = [
-                    build_table(t("Measures", lang), meausures),
-                ]
+                # Construir tablas por grupo
+                result_tables = [build_table(group_name, group_measures) for group_name, group_measures in grouped_measures.items()]
 
-                # Retornar:
-                # - False para mostrar el botón de descarga
-                # - Div con las tablas generadas
-                # - Mensaje de error vacío (sin error)
                 return False, html.Div(result_tables), ''
 
             except Exception as e:
-                # En caso de error, capturar la traza completa y mostrarla al usuario
                 error_details = traceback.format_exc()
                 error_message = dbc.Alert(f"{t('Error', lang)}: {error_details}", color="danger")
-                # Ocultar botón de descarga, no mostrar tablas, mostrar error
                 return True, '', error_message
 
-    # Si no se ha clickeado o no hay datos, ocultar descarga y no mostrar nada
     return True, '', None
-
 
 
 # A way to run the app in a local server.
